@@ -8,4 +8,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Trigger rebuild with Docker
 CMD ["python", "main.py"]
