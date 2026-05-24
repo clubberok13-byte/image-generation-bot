@@ -1,0 +1,8 @@
+config/.env
+*.env
+queue.json
+generated_photos/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
