@@ -119,7 +119,7 @@ def fetch_new_entries(seen_ids: list[str]) -> list[dict]:
             })
     # самые старые сначала, чтобы публикация шла в естественном порядке
     fresh.reverse()
-    return fresh
+    return fresh[-1:] if fresh else []
 
 # ──────────────────────────────────────────────────────────────────────
 # Nano Banana (Gemini 2.5 Flash Image)
