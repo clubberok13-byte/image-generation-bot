@@ -19,7 +19,7 @@ TARGET_CHANNEL_ID    = int(os.environ["TARGET_CHANNEL_ID"])
 REFERENCE_LINK       = os.environ["REFERENCE_LINK"]
 POLL_INTERVAL        = int(os.getenv("POLL_INTERVAL_MINUTES", "5"))
 
-SOURCE_CHANNELS = ["IIFot", "gorbuzaksenia"]
+SOURCE_CHANNELS = ["IIFot", "gorbuzaksenia", "balahninaII"]
 REPO_DIR        = Path(__file__).parent
 REF_DIR         = REPO_DIR / "reference_photos"
 MODELS          = ["model_1", "model_2"]
