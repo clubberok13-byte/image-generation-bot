@@ -1,7 +1,7 @@
 """
 Image Generation Bot
 - Слушает RSS-ленты двух Telegram-каналов
-- Берёт промт из <code> в новом посте
+- Берёт промт из <code>/<blockquote> в новом посте
 - Чередует референс-фото моделей (model_1 / model_2)
 - Генерирует картинку через Nano Banana (Gemini 2.5 Flash Image)
 - Постит в целевой канал + оригинальный промт в обсуждение
@@ -10,7 +10,7 @@ Image Generation Bot
 import os
 import io
 import json
-import time
+import html as html_module
 import asyncio
 import logging
 from pathlib import Path
@@ -21,7 +21,6 @@ from bs4 import BeautifulSoup
 from PIL import Image
 
 from google import genai
-from google.genai import types as genai_types
 
 from telegram import Bot, InputFile
 from telegram.constants import ParseMode
@@ -48,7 +47,7 @@ REPO_DIR = Path(__file__).parent
 REF_PHOTOS_DIR = REPO_DIR / "reference_photos"
 MODELS = ["model_1", "model_2"]
 
-STATE_FILE = Path("/tmp/seen.json")  # сбрасывается при рестарте — ок для нашего случая
+STATE_FILE = Path("/tmp/seen.json")
 
 CAPTION = (
     "Текст можно менять под себя, позы, цвет одежды, прически и т.д 🙌🏻\n\n"
@@ -60,7 +59,7 @@ CAPTION = (
 )
 
 # ──────────────────────────────────────────────────────────────────────
-# Состояние (что уже обработано)
+# Состояние
 # ──────────────────────────────────────────────────────────────────────
 
 def load_state() -> dict:
@@ -81,40 +80,37 @@ def save_state(state: dict) -> None:
 
 def extract_prompt(html: str) -> Optional[str]:
     """Достаёт текст промта из <code> или <blockquote>.
-    RSSHub иногда отдаёт экранированный HTML, поэтому раскодируем дважды."""
-    import html as html_module
-    # раскодируем экранированные сущности (&lt; -> <) на случай двойного экранирования
-    decoded = html_module.unescape(html)
-    decoded = html_module.unescape(decoded)
-
+    Раскодируем экранированный HTML на случай двойного экранирования."""
+    decoded = html_module.unescape(html_module.unescape(html))
     soup = BeautifulSoup(decoded, "html.parser")
 
-    # 1) приоритет — <code>
     code = soup.find("code")
     if code:
         text = code.get_text(separator="\n").strip()
         if text:
             return text
 
-    # 2) запасной вариант — <blockquote>
     bq = soup.find("blockquote")
     if bq:
         text = bq.get_text(separator="\n").strip()
         if text:
             return text
+
     return None
 
-def fetch_new_entries(seen_ids: list[str]) -> list[dict]:
-    """Возвращает новые посты со всех лент, в порядке от старого к новому."""
-    fresh: list[dict] = []
+def fetch_new_entries(seen_ids: list) -> list:
+    """Возвращает новые посты со всех лент, от старого к новому."""
+    fresh = []
     for feed_url in RSS_FEEDS:
         log.info("Опрашиваю RSS: %s", feed_url)
         try:
             d = feedparser.parse(feed_url)
-            log.info("Получено записей из ленты %s: %d", feed_url, len(d.entries))
         except Exception as e:
             log.exception("Не удалось распарсить ленту %s: %s", feed_url, e)
             continue
+
+        log.info("Получено записей из ленты %s: %d", feed_url, len(d.entries))
+
         for entry in d.entries:
             entry_id = entry.get("link") or entry.get("id")
             if not entry_id or entry_id in seen_ids:
@@ -124,17 +120,21 @@ def fetch_new_entries(seen_ids: list[str]) -> list[dict]:
                 html = entry["content"][0].get("value", "")
             elif entry.get("summary"):
                 html = entry["summary"]
+
             prompt = extract_prompt(html)
             if not prompt:
-                # помечаем как видели, чтоб не парсить снова, но не публикуем
+                # для отладки: покажем первые 300 символов html этого поста
+                log.info("Пост без промта (%s). HTML[:300]: %s", entry_id, html[:300])
                 seen_ids.append(entry_id)
                 continue
+
+            log.info("Найден промт в посте %s", entry_id)
             fresh.append({
                 "id": entry_id,
                 "prompt": prompt,
                 "link": entry.get("link", ""),
             })
-    # самые старые сначала, чтобы публикация шла в естественном порядке
+
     fresh.reverse()
     return fresh[-1:] if fresh else []
 
@@ -145,19 +145,15 @@ def fetch_new_entries(seen_ids: list[str]) -> list[dict]:
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 def find_model_file(model_name: str) -> Path:
-    """Ищет файл модели — допускает любое расширение или без расширения."""
-    # точное совпадение
     exact = REF_PHOTOS_DIR / model_name
     if exact.exists() and exact.is_file():
         return exact
-    # с любым расширением
     for p in REF_PHOTOS_DIR.iterdir():
         if p.is_file() and p.stem == model_name:
             return p
     raise FileNotFoundError(f"Не найден файл референса для {model_name} в {REF_PHOTOS_DIR}")
 
 def generate_image(prompt: str, model_name: str) -> bytes:
-    """Возвращает байты сгенерированной картинки."""
     ref_path = find_model_file(model_name)
     log.info("Использую референс: %s", ref_path)
     ref_image = Image.open(ref_path)
@@ -187,27 +183,14 @@ async def post_to_channel(bot: Bot, image_bytes: bytes, prompt: str) -> None:
     )
     log.info("Запостил картинку, message_id=%s", sent.message_id)
 
-    # Попытка отправить промт в обсуждение (комментарии)
-    # Группа обсуждений сама подцепляет пост и создаёт там тред.
-    # Через 3–5 сек tg создаёт связку — можно попробовать ответить на forwarded copy.
     await asyncio.sleep(4)
     try:
-        # Бот должен быть участником discussion-группы (или админом),
-        # чтобы видеть автоматически созданный тред.
-        # Telegram пересылает пост в discussion-группу с тем же message_id,
-        # но нам проще отправить промт как отдельное сообщение в discussion-группу
-        # с reply_to_message_id на автоматический форвард.
-        # На практике для большинства каналов работает следующий хак:
-        # forward_from_message_id в discussion группе == message_id в канале
-        # Но API "send to comments" официально нет.
-        # Поэтому делаем простой fallback: пробуем найти discussion chat.
         chat = await bot.get_chat(TARGET_CHANNEL_ID)
         if chat.linked_chat_id:
             await bot.send_message(
                 chat_id=chat.linked_chat_id,
                 text=f"<b>Промт:</b>\n<pre>{prompt}</pre>",
                 parse_mode=ParseMode.HTML,
-                reply_to_message_id=sent.message_id + 0,  # упрощённо — может не привязаться к посту
             )
             log.info("Отправил промт в discussion-группу")
     except TelegramError as e:
@@ -242,10 +225,9 @@ async def main_loop():
                     log.exception("Ошибка при обработке поста: %s", e)
                 finally:
                     state["seen_ids"].append(post["id"])
-                    # обрезаем историю чтобы не разрасталась
                     state["seen_ids"] = state["seen_ids"][-500:]
                     save_state(state)
-                    await asyncio.sleep(3)  # маленькая пауза между постами
+                    await asyncio.sleep(3)
         except Exception as e:
             log.exception("Ошибка в основном цикле: %s", e)
 
