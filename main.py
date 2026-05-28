@@ -80,12 +80,28 @@ def save_state(state: dict) -> None:
 # ──────────────────────────────────────────────────────────────────────
 
 def extract_prompt(html: str) -> Optional[str]:
-    """Достаёт текст из <code>...</code>; если нет — None."""
-    soup = BeautifulSoup(html, "html.parser")
+    """Достаёт текст промта из <code> или <blockquote>.
+    RSSHub иногда отдаёт экранированный HTML, поэтому раскодируем дважды."""
+    import html as html_module
+    # раскодируем экранированные сущности (&lt; -> <) на случай двойного экранирования
+    decoded = html_module.unescape(html)
+    decoded = html_module.unescape(decoded)
+
+    soup = BeautifulSoup(decoded, "html.parser")
+
+    # 1) приоритет — <code>
     code = soup.find("code")
     if code:
         text = code.get_text(separator="\n").strip()
-        return text or None
+        if text:
+            return text
+
+    # 2) запасной вариант — <blockquote>
+    bq = soup.find("blockquote")
+    if bq:
+        text = bq.get_text(separator="\n").strip()
+        if text:
+            return text
     return None
 
 def fetch_new_entries(seen_ids: list[str]) -> list[dict]:
