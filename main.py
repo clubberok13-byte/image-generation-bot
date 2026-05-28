@@ -175,13 +175,11 @@ async def post_to_channel(bot, image_bytes, prompt):
     try:
         chat = await bot.get_chat(TARGET_CHANNEL_ID)
         if chat.linked_chat_id:
-            group_msg_id = sent.message_id + 1
-            log.info("group_msg_id=%s", group_msg_id)
             await bot.send_message(
                 chat_id=chat.linked_chat_id,
                 text="<b>Промт:</b>\n<pre>" + prompt + "</pre>",
                 parse_mode=ParseMode.HTML,
-                reply_to_message_id=group_msg_id,
+                reply_to_message_id=sent.message_id,
             )
             log.info("Промт отправлен в обсуждение")
     except TelegramError as e:
