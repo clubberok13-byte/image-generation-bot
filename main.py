@@ -172,15 +172,27 @@ async def post_to_channel(bot, image_bytes, prompt):
         parse_mode=ParseMode.HTML,
     )
     log.info("Запостил картинку, message_id=%s", sent.message_id)
-    await asyncio.sleep(4)
+    await asyncio.sleep(8)
     try:
         chat = await bot.get_chat(TARGET_CHANNEL_ID)
         if chat.linked_chat_id:
+            group_msg_id = None
+            updates = await bot.get_updates(limit=20, allowed_updates=["message"])
+            for u in reversed(updates):
+                msg = u.message
+                if (msg and
+                    msg.chat.id == chat.linked_chat_id and
+                    getattr(msg, "forward_from_chat", None) and
+                    msg.forward_from_chat.id == TARGET_CHANNEL_ID and
+                    msg.forward_from_message_id == sent.message_id):
+                    group_msg_id = msg.message_id
+                    log.info("Нашёл пост в группе: group_msg_id=%s", group_msg_id)
+                    break
             await bot.send_message(
                 chat_id=chat.linked_chat_id,
                 text="<b>Промт:</b>\n<pre>" + prompt + "</pre>",
                 parse_mode=ParseMode.HTML,
-                reply_to_message_id=sent.message_id,
+                reply_to_message_id=group_msg_id,
             )
             log.info("Промт отправлен в обсуждение")
     except TelegramError as e:
