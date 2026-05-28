@@ -1,5 +1,7 @@
 import os, io, json, base64, asyncio, logging
 from pathlib import Path
+from datetime import datetime
+import pytz
 
 import requests
 from bs4 import BeautifulSoup
@@ -16,7 +18,11 @@ TELEGRAM_BOT_TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
 GEMINI_API_KEY       = os.environ["GEMINI_API_KEY"]
 TARGET_CHANNEL_ID    = int(os.environ["TARGET_CHANNEL_ID"])
 REFERENCE_LINK       = os.environ["REFERENCE_LINK"]
-POLL_INTERVAL        = int(os.getenv("POLL_INTERVAL_MINUTES", "30"))
+POLL_INTERVAL        = 23
+
+MOSCOW_TZ    = pytz.timezone("Europe/Moscow")
+HOUR_START   = 7
+HOUR_END     = 23
 
 SOURCE_CHANNELS = ["IIFot", "gorbuzaksenia", "balahninaII"]
 REPO_DIR        = Path(__file__).parent
@@ -29,6 +35,11 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5
 TGME_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
 }
+
+
+def is_active_hours():
+    now = datetime.now(MOSCOW_TZ)
+    return HOUR_START <= now.hour < HOUR_END
 
 
 def make_caption(prompt):
@@ -182,6 +193,12 @@ async def main_loop():
     log.info("Цель: %s", TARGET_CHANNEL_ID)
 
     while True:
+        now = datetime.now(MOSCOW_TZ)
+        if not is_active_hours():
+            log.info("Сейчас %s МСК — вне рабочих часов, жду до 07:00", now.strftime("%H:%M"))
+            await asyncio.sleep(60)
+            continue
+
         state = load_state()
         try:
             new_posts = fetch_new_entries(state["seen_ids"])
