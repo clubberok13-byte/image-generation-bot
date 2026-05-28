@@ -180,7 +180,7 @@ async def post_to_channel(bot, image_bytes, prompt):
                 chat_id=chat.linked_chat_id,
                 text="<b>Промт:</b>\n<pre>" + prompt + "</pre>",
                 parse_mode=ParseMode.HTML,
-                message_thread_id=sent.message_id,
+                reply_to_message_id=sent.message_id,
             )
             log.info("Промт отправлен в обсуждение")
     except TelegramError as e:
