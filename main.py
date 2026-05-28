@@ -1,9 +1,9 @@
 """
-Image Generation Bot — версия с прямым парсингом t.me/s/
+Image Generation Bot — парсинг t.me/s/ + Nano Banana
 - Качает веб-превью каналов (https://t.me/s/<channel>)
 - Берёт промт из <code>/<blockquote> в новых постах
 - Чередует референс-фото моделей (model_1 / model_2)
-- Генерирует картинку через Nano Banana (Gemini 2.5 Flash Image)
+- Генерирует картинку через Gemini 2.5 Flash Image
 - Постит в целевой канал + промт в обсуждение
 """
 
@@ -41,7 +41,6 @@ TARGET_CHANNEL_ID = int(os.environ["TARGET_CHANNEL_ID"])
 REFERENCE_LINK = os.environ["REFERENCE_LINK"]
 POLL_INTERVAL_MINUTES = int(os.getenv("POLL_INTERVAL_MINUTES", "5"))
 
-# Список каналов-источников (юзернеймы без @)
 SOURCE_CHANNELS = ["IIFot", "gorbuzaksenia"]
 
 REPO_DIR = Path(__file__).parent
@@ -88,7 +87,6 @@ def save_state(state: dict) -> None:
 # ──────────────────────────────────────────────────────────────────────
 
 def extract_prompt_from_message(msg_div) -> Optional[str]:
-    """Достаёт промт из блока сообщения: приоритет <code>, потом <blockquote>."""
     code = msg_div.find("code")
     if code:
         text = code.get_text(separator="\n").strip()
@@ -102,7 +100,6 @@ def extract_prompt_from_message(msg_div) -> Optional[str]:
     return None
 
 def fetch_new_entries(seen_ids: list) -> list:
-    """Качает t.me/s/<channel> для каждого канала, ищет новые посты с промтами."""
     fresh = []
     for channel in SOURCE_CHANNELS:
         url = f"https://t.me/s/{channel}"
@@ -115,12 +112,10 @@ def fetch_new_entries(seen_ids: list) -> list:
             continue
 
         soup = BeautifulSoup(resp.text, "html.parser")
-        # каждый пост — div с классом tgme_widget_message
         messages = soup.find_all("div", class_="tgme_widget_message")
         log.info("Найдено сообщений на странице %s: %d", channel, len(messages))
 
         for msg in messages:
-            # уникальный id поста — data-post="channel/12345"
             post_id = msg.get("data-post")
             if not post_id:
                 continue
@@ -128,7 +123,6 @@ def fetch_new_entries(seen_ids: list) -> list:
             if entry_id in seen_ids:
                 continue
 
-            # текстовый блок сообщения
             text_div = msg.find("div", class_="tgme_widget_message_text")
             prompt = extract_prompt_from_message(text_div) if text_div else None
 
@@ -143,12 +137,10 @@ def fetch_new_entries(seen_ids: list) -> list:
                 "link": entry_id,
             })
 
-    # t.me/s/ отдаёт от старых к новым (новые внизу) — оставляем как есть,
-    # берём только самый свежий для теста
     return fresh[-1:] if fresh else []
 
 # ──────────────────────────────────────────────────────────────────────
-# Nano Banana (Gemini 2.5 Flash Image)
+# Gemini (Nano Banana)
 # ──────────────────────────────────────────────────────────────────────
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
@@ -174,7 +166,15 @@ def generate_image(prompt: str, model_name: str) -> bytes:
 
     for part in response.candidates[0].content.parts:
         if getattr(part, "inline_data", None) and part.inline_data.data:
-            return part.inline_data.data
+            raw = part.inline_data.data
+            # перекодируем в чистый PNG через PIL, чтобы избежать проблем
+            img = Image.open(io.BytesIO(raw))
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            out = io.BytesIO()
+            img.save(out, format="PNG")
+            out.seek(0)
+            return out.read()
     raise RuntimeError("Gemini не вернул изображение")
 
 # ──────────────────────────────────────────────────────────────────────
@@ -183,10 +183,10 @@ def generate_image(prompt: str, model_name: str) -> bytes:
 
 async def post_to_channel(bot: Bot, image_bytes: bytes, prompt: str) -> None:
     bio = io.BytesIO(image_bytes)
-    bio.name = "post.png"
+    bio.seek(0)
     sent = await bot.send_photo(
         chat_id=TARGET_CHANNEL_ID,
-        photo=InputFile(bio, filename="post.png"),
+        photo=bio,
         caption=CAPTION,
         parse_mode=ParseMode.HTML,
     )
