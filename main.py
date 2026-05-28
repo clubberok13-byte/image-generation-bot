@@ -1,6 +1,5 @@
 import os, io, json, base64, asyncio, logging
 from pathlib import Path
-from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -100,7 +99,7 @@ def fetch_new_entries(seen_ids):
                 continue
             log.info("Найден промт в посте %s", eid)
             fresh.append({"id": eid, "prompt": prompt, "link": eid})
-    return fresh[-1:] if fresh else []
+    return fresh
 
 
 def find_model_file(model_name):
@@ -176,18 +175,8 @@ async def post_to_channel(bot, image_bytes, prompt):
     try:
         chat = await bot.get_chat(TARGET_CHANNEL_ID)
         if chat.linked_chat_id:
-            group_msg_id = None
-            updates = await bot.get_updates(limit=20, allowed_updates=["message"])
-            for u in reversed(updates):
-                msg = u.message
-                if (msg and
-                    msg.chat.id == chat.linked_chat_id and
-                    getattr(msg, "forward_from_chat", None) and
-                    msg.forward_from_chat.id == TARGET_CHANNEL_ID and
-                    msg.forward_from_message_id == sent.message_id):
-                    group_msg_id = msg.message_id
-                    log.info("Нашёл пост в группе: group_msg_id=%s", group_msg_id)
-                    break
+            group_msg_id = sent.message_id + 1
+            log.info("group_msg_id=%s", group_msg_id)
             await bot.send_message(
                 chat_id=chat.linked_chat_id,
                 text="<b>Промт:</b>\n<pre>" + prompt + "</pre>",
