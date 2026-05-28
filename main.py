@@ -111,6 +111,7 @@ def fetch_new_entries(seen_ids: list[str]) -> list[dict]:
         log.info("Опрашиваю RSS: %s", feed_url)
         try:
             d = feedparser.parse(feed_url)
+            log.info("Получено записей из ленты %s: %d", feed_url, len(d.entries))
         except Exception as e:
             log.exception("Не удалось распарсить ленту %s: %s", feed_url, e)
             continue
