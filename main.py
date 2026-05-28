@@ -16,7 +16,7 @@ TELEGRAM_BOT_TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
 GEMINI_API_KEY       = os.environ["GEMINI_API_KEY"]
 TARGET_CHANNEL_ID    = int(os.environ["TARGET_CHANNEL_ID"])
 REFERENCE_LINK       = os.environ["REFERENCE_LINK"]
-POLL_INTERVAL        = int(os.getenv("POLL_INTERVAL_MINUTES", "5"))
+POLL_INTERVAL        = int(os.getenv("POLL_INTERVAL_MINUTES", "30"))
 
 SOURCE_CHANNELS = ["IIFot", "gorbuzaksenia", "balahninaII"]
 REPO_DIR        = Path(__file__).parent
@@ -99,7 +99,7 @@ def fetch_new_entries(seen_ids):
                 continue
             log.info("Найден промт в посте %s", eid)
             fresh.append({"id": eid, "prompt": prompt, "link": eid})
-    return fresh
+    return fresh[-1:] if fresh else []
 
 
 def find_model_file(model_name):
