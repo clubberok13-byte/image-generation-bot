@@ -31,7 +31,7 @@ TGME_HEADERS = {
 }
 
 
-def make_caption():
+def make_caption(prompt):
     link = REFERENCE_LINK
     return (
         "Текст можно менять под себя, позы, цвет одежды, прически и т.д\n\n"
@@ -39,7 +39,8 @@ def make_caption():
         "2) Кнопка Дизайн с ИИ\n"
         "3) Кнопка Nano Banana\n"
         "4) Добавляете фото\n"
-        "5) Добавляете Промт из комментариев."
+        "5) Добавляете Промт из комментариев.\n\n"
+        "<blockquote expandable>" + prompt + "</blockquote>"
     )
 
 
@@ -161,7 +162,7 @@ def generate_image(prompt, model_name):
 
 
 async def post_to_channel(bot, image_bytes, prompt):
-    caption = make_caption()
+    caption = make_caption(prompt)
     bio = io.BytesIO(image_bytes)
     bio.seek(0)
     sent = await bot.send_photo(
@@ -171,19 +172,6 @@ async def post_to_channel(bot, image_bytes, prompt):
         parse_mode=ParseMode.HTML,
     )
     log.info("Запостил картинку, message_id=%s", sent.message_id)
-    await asyncio.sleep(8)
-    try:
-        chat = await bot.get_chat(TARGET_CHANNEL_ID)
-        if chat.linked_chat_id:
-            await bot.send_message(
-                chat_id=chat.linked_chat_id,
-                text="<b>Промт:</b>\n<pre>" + prompt + "</pre>",
-                parse_mode=ParseMode.HTML,
-                reply_to_message_id=sent.message_id,
-            )
-            log.info("Промт отправлен в обсуждение")
-    except TelegramError as e:
-        log.warning("Не смог отправить промт: %s", e)
 
 
 async def main_loop():
