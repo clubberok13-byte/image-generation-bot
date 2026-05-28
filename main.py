@@ -1,22 +1,21 @@
 """
-Image Generation Bot
-- Слушает RSS-ленты двух Telegram-каналов
-- Берёт промт из <code>/<blockquote> в новом посте
+Image Generation Bot — версия с прямым парсингом t.me/s/
+- Качает веб-превью каналов (https://t.me/s/<channel>)
+- Берёт промт из <code>/<blockquote> в новых постах
 - Чередует референс-фото моделей (model_1 / model_2)
 - Генерирует картинку через Nano Banana (Gemini 2.5 Flash Image)
-- Постит в целевой канал + оригинальный промт в обсуждение
+- Постит в целевой канал + промт в обсуждение
 """
 
 import os
 import io
 import json
-import html as html_module
 import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
 
-import feedparser
+import requests
 from bs4 import BeautifulSoup
 from PIL import Image
 
@@ -39,15 +38,25 @@ log = logging.getLogger("bot")
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 TARGET_CHANNEL_ID = int(os.environ["TARGET_CHANNEL_ID"])
-RSS_FEEDS = [u.strip() for u in os.environ["RSS_FEEDS"].split(",") if u.strip()]
 REFERENCE_LINK = os.environ["REFERENCE_LINK"]
 POLL_INTERVAL_MINUTES = int(os.getenv("POLL_INTERVAL_MINUTES", "5"))
+
+# Список каналов-источников (юзернеймы без @)
+SOURCE_CHANNELS = ["IIFot", "gorbuzaksenia"]
 
 REPO_DIR = Path(__file__).parent
 REF_PHOTOS_DIR = REPO_DIR / "reference_photos"
 MODELS = ["model_1", "model_2"]
 
 STATE_FILE = Path("/tmp/seen.json")
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0 Safari/537.36"
+    )
+}
 
 CAPTION = (
     "Текст можно менять под себя, позы, цвет одежды, прически и т.д 🙌🏻\n\n"
@@ -75,56 +84,55 @@ def save_state(state: dict) -> None:
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False))
 
 # ──────────────────────────────────────────────────────────────────────
-# Парсинг RSS
+# Парсинг t.me/s/
 # ──────────────────────────────────────────────────────────────────────
 
-def extract_prompt(html: str) -> Optional[str]:
-    """Достаёт текст промта из <code> или <blockquote>.
-    Раскодируем экранированный HTML на случай двойного экранирования."""
-    decoded = html_module.unescape(html_module.unescape(html))
-    soup = BeautifulSoup(decoded, "html.parser")
-
-    code = soup.find("code")
+def extract_prompt_from_message(msg_div) -> Optional[str]:
+    """Достаёт промт из блока сообщения: приоритет <code>, потом <blockquote>."""
+    code = msg_div.find("code")
     if code:
         text = code.get_text(separator="\n").strip()
         if text:
             return text
-
-    bq = soup.find("blockquote")
+    bq = msg_div.find("blockquote")
     if bq:
         text = bq.get_text(separator="\n").strip()
         if text:
             return text
-
     return None
 
 def fetch_new_entries(seen_ids: list) -> list:
-    """Возвращает новые посты со всех лент, от старого к новому."""
+    """Качает t.me/s/<channel> для каждого канала, ищет новые посты с промтами."""
     fresh = []
-    for feed_url in RSS_FEEDS:
-        log.info("Опрашиваю RSS: %s", feed_url)
+    for channel in SOURCE_CHANNELS:
+        url = f"https://t.me/s/{channel}"
+        log.info("Опрашиваю канал: %s", url)
         try:
-            d = feedparser.parse(feed_url)
+            resp = requests.get(url, headers=HEADERS, timeout=20)
+            resp.raise_for_status()
         except Exception as e:
-            log.exception("Не удалось распарсить ленту %s: %s", feed_url, e)
+            log.exception("Не удалось загрузить %s: %s", url, e)
             continue
 
-        log.info("Получено записей из ленты %s: %d", feed_url, len(d.entries))
+        soup = BeautifulSoup(resp.text, "html.parser")
+        # каждый пост — div с классом tgme_widget_message
+        messages = soup.find_all("div", class_="tgme_widget_message")
+        log.info("Найдено сообщений на странице %s: %d", channel, len(messages))
 
-        for entry in d.entries:
-            entry_id = entry.get("link") or entry.get("id")
-            if not entry_id or entry_id in seen_ids:
+        for msg in messages:
+            # уникальный id поста — data-post="channel/12345"
+            post_id = msg.get("data-post")
+            if not post_id:
                 continue
-            html = ""
-            if entry.get("content"):
-                html = entry["content"][0].get("value", "")
-            elif entry.get("summary"):
-                html = entry["summary"]
+            entry_id = f"https://t.me/{post_id}"
+            if entry_id in seen_ids:
+                continue
 
-            prompt = extract_prompt(html)
+            # текстовый блок сообщения
+            text_div = msg.find("div", class_="tgme_widget_message_text")
+            prompt = extract_prompt_from_message(text_div) if text_div else None
+
             if not prompt:
-                # для отладки: покажем первые 300 символов html этого поста
-                log.info("Пост без промта (%s). HTML[:300]: %s", entry_id, html[:300])
                 seen_ids.append(entry_id)
                 continue
 
@@ -132,10 +140,11 @@ def fetch_new_entries(seen_ids: list) -> list:
             fresh.append({
                 "id": entry_id,
                 "prompt": prompt,
-                "link": entry.get("link", ""),
+                "link": entry_id,
             })
 
-    fresh.reverse()
+    # t.me/s/ отдаёт от старых к новым (новые внизу) — оставляем как есть,
+    # берём только самый свежий для теста
     return fresh[-1:] if fresh else []
 
 # ──────────────────────────────────────────────────────────────────────
@@ -204,7 +213,7 @@ async def main_loop():
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
     me = await bot.get_me()
     log.info("Бот запущен: @%s (id=%s)", me.username, me.id)
-    log.info("Источники RSS: %s", RSS_FEEDS)
+    log.info("Каналы-источники: %s", SOURCE_CHANNELS)
     log.info("Целевой канал: %s", TARGET_CHANNEL_ID)
     log.info("Модели: %s", MODELS)
 
