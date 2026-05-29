@@ -1,4 +1,4 @@
-00:44python-telegram-bot==21.6
+python-telegram-bot==21.6
 google-genai==1.21.0
 requests==2.32.3
 beautifulsoup4==4.12.3
