@@ -44,6 +44,7 @@ def is_active_hours():
 
 def make_caption(prompt):
     link = REFERENCE_LINK
+    short_prompt = prompt[:800] + "..." if len(prompt) > 800 else prompt
     return (
         "Текст можно менять под себя, позы, цвет одежды, прически и т.д\n\n"
         "1) Заходим в бот " + '<a href="' + link + '">здесь</a>' + " (Жмите на синюю надпись)\n"
@@ -51,7 +52,7 @@ def make_caption(prompt):
         "3) Кнопка Nano Banana\n"
         "4) Добавляете фото\n"
         "5) Добавляете Промт из комментариев.\n\n"
-        "<blockquote expandable>" + prompt + "</blockquote>"
+        "<blockquote expandable>" + short_prompt + "</blockquote>"
     )
 
 
