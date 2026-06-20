@@ -6,6 +6,7 @@ import pytz
 import requests
 from bs4 import BeautifulSoup
 from PIL import Image
+from openai import OpenAI
 from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
@@ -15,10 +16,12 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("bot")
 
 TELEGRAM_BOT_TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
-GEMINI_API_KEY       = os.environ["GEMINI_API_KEY"]
+OPENAI_API_KEY       = os.environ["OPENAI_API_KEY"]
 TARGET_CHANNEL_ID    = int(os.environ["TARGET_CHANNEL_ID"])
 REFERENCE_LINK       = os.environ["REFERENCE_LINK"]
 POLL_INTERVAL        = 23
+
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 MOSCOW_TZ    = pytz.timezone("Europe/Moscow")
 HOUR_START   = 7
@@ -29,8 +32,6 @@ REPO_DIR        = Path(__file__).parent
 REF_DIR         = REPO_DIR / "reference_photos"
 MODELS          = ["model_1", "model_2"]
 STATE_FILE      = Path("/tmp/seen.json")
-
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent"
 
 TGME_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
@@ -136,41 +137,34 @@ def generate_image(prompt, model_name):
     img.save(buf, format="JPEG")
     img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}
+    vision_resp = openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
+                {"type": "text", "text": "Describe the visual style, lighting, color palette, composition, and subject of this photo in 2-3 sentences for use as a style reference in image generation."}
             ]
-        }]
-    }
-    hdrs = {
-        "x-goog-api-key": GEMINI_API_KEY,
-        "Content-Type": "application/json"
-    }
-    resp = requests.post(GEMINI_URL, headers=hdrs, json=payload, timeout=120)
-    if resp.status_code != 200:
-        raise RuntimeError("Gemini " + str(resp.status_code) + ": " + resp.text[:300])
+        }],
+        max_tokens=150
+    )
+    style_desc = vision_resp.choices[0].message.content
+    log.info("Стиль референса: %s", style_desc[:100])
 
-    data = resp.json()
-    try:
-        parts = data["candidates"][0]["content"]["parts"]
-    except (KeyError, IndexError):
-        raise RuntimeError("Неожиданный ответ: " + json.dumps(data)[:300])
+    enhanced_prompt = f"{prompt}. Style reference: {style_desc}. Professional quality, detailed, cinematic lighting."
 
-    for part in parts:
-        inline = part.get("inlineData") or part.get("inline_data")
-        if inline and inline.get("data"):
-            raw = base64.b64decode(inline["data"])
-            out_img = Image.open(io.BytesIO(raw))
-            if out_img.mode != "RGB":
-                out_img = out_img.convert("RGB")
-            out = io.BytesIO()
-            out_img.save(out, format="PNG")
-            out.seek(0)
-            return out.read()
+    dalle_resp = openai_client.images.generate(
+        model="dall-e-3",
+        prompt=enhanced_prompt,
+        size="1024x1024",
+        quality="standard",
+        n=1,
+    )
+    image_url = dalle_resp.data[0].url
 
-    raise RuntimeError("Gemini не вернул изображение")
+    r = requests.get(image_url, timeout=60)
+    r.raise_for_status()
+    return r.content
 
 
 async def post_to_channel(bot, image_bytes, prompt):
