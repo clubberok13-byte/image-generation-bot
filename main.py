@@ -154,7 +154,7 @@ def generate_image(prompt, model_name):
     enhanced_prompt = f"{prompt}. Style reference: {style_desc}. Professional quality, detailed, cinematic lighting."
 
     dalle_resp = openai_client.images.generate(
-        model="dall-e-3",
+        model="gpt-image-1",
         prompt=enhanced_prompt,
         size="1024x1024",
         quality="standard",
