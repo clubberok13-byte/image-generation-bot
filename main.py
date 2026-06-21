@@ -160,9 +160,10 @@ def generate_image(prompt, model_name):
         quality="auto",
         n=1,
     )
-    image_url = dalle_resp.data[0].url
-
-    r = requests.get(image_url, timeout=60)
+    img_data = dalle_resp.data[0]
+    if img_data.b64_json:
+        return base64.b64decode(img_data.b64_json)
+    r = requests.get(img_data.url, timeout=60)
     r.raise_for_status()
     return r.content
 
