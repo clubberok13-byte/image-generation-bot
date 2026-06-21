@@ -157,7 +157,7 @@ def generate_image(prompt, model_name):
         model="gpt-image-1",
         prompt=enhanced_prompt,
         size="1024x1024",
-        quality="standard",
+        quality="auto",
         n=1,
     )
     image_url = dalle_resp.data[0].url
