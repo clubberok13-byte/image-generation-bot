@@ -130,37 +130,21 @@ def generate_image(prompt, model_name):
     ref_path = find_model_file(model_name)
     log.info("Референс: %s", ref_path)
 
-    img = Image.open(ref_path)
-    if img.mode != "RGB":
-        img = img.convert("RGB")
+    img = Image.open(ref_path).convert("RGBA")
     buf = io.BytesIO()
-    img.save(buf, format="JPEG")
-    img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    img.save(buf, format="PNG")
+    buf.seek(0)
 
-    vision_resp = openai_client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
-                {"type": "text", "text": "Describe the visual style, lighting, color palette, composition, and subject of this photo in 2-3 sentences for use as a style reference in image generation."}
-            ]
-        }],
-        max_tokens=150
-    )
-    style_desc = vision_resp.choices[0].message.content
-    log.info("Стиль референса: %s", style_desc[:100])
+    enhanced_prompt = f"{prompt}. Keep the same person, appearance and style as in the reference photo. Professional quality, cinematic lighting."
 
-    enhanced_prompt = f"{prompt}. Style reference: {style_desc}. Professional quality, detailed, cinematic lighting."
-
-    dalle_resp = openai_client.images.generate(
+    result = openai_client.images.edit(
         model="gpt-image-1",
+        image=("reference.png", buf, "image/png"),
         prompt=enhanced_prompt,
         size="1024x1024",
-        quality="auto",
         n=1,
     )
-    img_data = dalle_resp.data[0]
+    img_data = result.data[0]
     if img_data.b64_json:
         return base64.b64decode(img_data.b64_json)
     r = requests.get(img_data.url, timeout=60)
