@@ -6,7 +6,6 @@ import pytz
 import requests
 from bs4 import BeautifulSoup
 from PIL import Image
-from openai import OpenAI
 from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
@@ -16,12 +15,12 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("bot")
 
 TELEGRAM_BOT_TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
-OPENAI_API_KEY       = os.environ["OPENAI_API_KEY"]
+GEMINI_API_KEY       = os.environ["GEMINI_API_KEY"]
 TARGET_CHANNEL_ID    = int(os.environ["TARGET_CHANNEL_ID"])
 REFERENCE_LINK       = os.environ["REFERENCE_LINK"]
 POLL_INTERVAL        = 23
 
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-image-generation:generateContent"
 
 MOSCOW_TZ    = pytz.timezone("Europe/Moscow")
 HOUR_START   = 7
@@ -130,26 +129,46 @@ def generate_image(prompt, model_name):
     ref_path = find_model_file(model_name)
     log.info("Референс: %s", ref_path)
 
-    img = Image.open(ref_path).convert("RGBA")
+    img = Image.open(ref_path)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
+    img.save(buf, format="JPEG")
+    img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-    enhanced_prompt = f"{prompt}. Keep the same person, appearance and style as in the reference photo. Professional quality, cinematic lighting."
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}
+            ]
+        }],
+        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]}
+    }
+    hdrs = {"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"}
+    resp = requests.post(GEMINI_URL, headers=hdrs, json=payload, timeout=120)
+    if resp.status_code != 200:
+        raise RuntimeError("Gemini " + str(resp.status_code) + ": " + resp.text[:300])
 
-    result = openai_client.images.edit(
-        model="gpt-image-1",
-        image=("reference.png", buf, "image/png"),
-        prompt=enhanced_prompt,
-        size="1024x1024",
-        n=1,
-    )
-    img_data = result.data[0]
-    if img_data.b64_json:
-        return base64.b64decode(img_data.b64_json)
-    r = requests.get(img_data.url, timeout=60)
-    r.raise_for_status()
-    return r.content
+    data = resp.json()
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError):
+        raise RuntimeError("Неожиданный ответ: " + json.dumps(data)[:300])
+
+    for part in parts:
+        inline = part.get("inlineData") or part.get("inline_data")
+        if inline and inline.get("data"):
+            raw = base64.b64decode(inline["data"])
+            out_img = Image.open(io.BytesIO(raw))
+            if out_img.mode != "RGB":
+                out_img = out_img.convert("RGB")
+            out = io.BytesIO()
+            out_img.save(out, format="PNG")
+            out.seek(0)
+            return out.read()
+
+    raise RuntimeError("Gemini не вернул изображение")
 
 
 async def post_to_channel(bot, image_bytes, prompt):
