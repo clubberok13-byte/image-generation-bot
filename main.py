@@ -138,14 +138,14 @@ def generate_image(prompt, model_name):
 
     client = replicate.Client(api_token=REPLICATE_API_TOKEN)
     output = client.run(
-        "black-forest-labs/flux-dev",
+        "tencentarc/photomaker",
         input={
-            "image": buf,
-            "prompt": prompt,
-            "prompt_strength": 0.75,
+            "prompt": "photo of a woman img, " + prompt + ", high quality, realistic",
+            "input_image": buf,
             "num_outputs": 1,
-            "output_format": "jpg",
-            "num_inference_steps": 28,
+            "style_strength_ratio": 20,
+            "num_steps": 50,
+            "guidance_scale": 5,
         }
     )
 
