@@ -15,10 +15,12 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("bot")
 
 TELEGRAM_BOT_TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
-REPLICATE_API_TOKEN  = os.environ["REPLICATE_API_TOKEN"]
+GEMINI_API_KEY       = os.environ["GEMINI_API_KEY"]
 TARGET_CHANNEL_ID    = int(os.environ["TARGET_CHANNEL_ID"])
 REFERENCE_LINK       = os.environ["REFERENCE_LINK"]
 POLL_INTERVAL        = 23
+
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent"
 
 MOSCOW_TZ    = pytz.timezone("Europe/Moscow")
 HOUR_START   = 7
@@ -124,8 +126,6 @@ def find_model_file(model_name):
 
 
 def generate_image(prompt, model_name):
-    import replicate
-
     ref_path = find_model_file(model_name)
     log.info("Референс: %s", ref_path)
 
@@ -134,25 +134,41 @@ def generate_image(prompt, model_name):
         img = img.convert("RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
-    buf.seek(0)
+    img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-    client = replicate.Client(api_token=REPLICATE_API_TOKEN)
-    output = client.run(
-        "tencentarc/photomaker",
-        input={
-            "prompt": "photo of a woman img, " + prompt + ", high quality, realistic",
-            "input_image": buf,
-            "num_outputs": 1,
-            "style_strength_ratio": 20,
-            "num_steps": 50,
-            "guidance_scale": 5,
-        }
-    )
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}
+            ]
+        }],
+        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]}
+    }
+    hdrs = {"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"}
+    resp = requests.post(GEMINI_URL, headers=hdrs, json=payload, timeout=120)
+    if resp.status_code != 200:
+        raise RuntimeError("Gemini " + str(resp.status_code) + ": " + resp.text[:300])
 
-    image_url = str(list(output)[0])
-    r = requests.get(image_url, timeout=60)
-    r.raise_for_status()
-    return r.content
+    data = resp.json()
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError):
+        raise RuntimeError("Неожиданный ответ: " + json.dumps(data)[:300])
+
+    for part in parts:
+        inline = part.get("inlineData") or part.get("inline_data")
+        if inline and inline.get("data"):
+            raw = base64.b64decode(inline["data"])
+            out_img = Image.open(io.BytesIO(raw))
+            if out_img.mode != "RGB":
+                out_img = out_img.convert("RGB")
+            out = io.BytesIO()
+            out_img.save(out, format="PNG")
+            out.seek(0)
+            return out.read()
+
+    raise RuntimeError("Gemini не вернул изображение")
 
 
 async def post_to_channel(bot, image_bytes, prompt):
