@@ -164,12 +164,11 @@ def generate_image(prompt, model_name):
     # Шаг 2: генерация картинки через imagen-3.0-generate-002
     enhanced_prompt = f"{prompt}. The person: {person_desc}" if person_desc else prompt
     imagen_payload = {
-        "prompt": enhanced_prompt,
-        "number_of_images": 1,
-        "aspect_ratio": "1:1",
+        "instances": [{"prompt": enhanced_prompt}],
+        "parameters": {"sampleCount": 1, "aspectRatio": "1:1"}
     }
     imagen_resp = requests.post(
-        "https://api.artemox.com/v1beta/models/imagen-3.0-generate-002:generateImages",
+        "https://api.artemox.com/v1beta/models/imagen-3.0-generate-002:predict",
         headers=hdrs, json=imagen_payload, timeout=120
     )
     if imagen_resp.status_code != 200:
