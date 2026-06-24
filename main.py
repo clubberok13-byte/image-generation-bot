@@ -145,6 +145,7 @@ def generate_image(prompt, model_name):
 
     payload = {
         "contents": [{
+            "role": "user",
             "parts": [
                 {"text": prompt},
                 {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}
