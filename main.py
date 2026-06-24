@@ -15,13 +15,17 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("bot")
 
 TELEGRAM_BOT_TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
-OPENAI_API_KEY       = os.environ["OPENAI_API_KEY"]
+ARTEMOX_API_KEY      = os.environ["ARTEMOX_API_KEY"]
 TARGET_CHANNEL_ID    = int(os.environ["TARGET_CHANNEL_ID"])
 REFERENCE_LINK       = os.environ["REFERENCE_LINK"]
 POLL_INTERVAL        = 23
 
-from openai import OpenAI
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+from google import genai
+from google.genai import types as genai_types
+genai_client = genai.Client(
+    api_key=ARTEMOX_API_KEY,
+    http_options=genai_types.HttpOptions(base_url='https://api.artemox.com')
+)
 
 MOSCOW_TZ    = pytz.timezone("Europe/Moscow")
 HOUR_START   = 7
@@ -130,26 +134,35 @@ def generate_image(prompt, model_name):
     ref_path = find_model_file(model_name)
     log.info("Референс: %s", ref_path)
 
-    img = Image.open(ref_path).convert("RGBA")
+    img = Image.open(ref_path)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
+    img.save(buf, format="JPEG")
+    img_bytes = buf.getvalue()
 
-    enhanced_prompt = f"{prompt}. Keep the same person, appearance and style as in the reference photo. Professional quality, cinematic lighting."
+    image_part = genai_types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
 
-    result = openai_client.images.edit(
-        model="gpt-image-1",
-        image=("reference.png", buf, "image/png"),
-        prompt=enhanced_prompt,
-        size="1024x1024",
-        n=1,
+    response = genai_client.models.generate_content(
+        model="gemini-2.0-flash-exp",
+        contents=[prompt, image_part],
+        config=genai_types.GenerateContentConfig(
+            response_modalities=["IMAGE", "TEXT"]
+        )
     )
-    img_data = result.data[0]
-    if img_data.b64_json:
-        return base64.b64decode(img_data.b64_json)
-    r = requests.get(img_data.url, timeout=60)
-    r.raise_for_status()
-    return r.content
+
+    for part in response.candidates[0].content.parts:
+        if part.inline_data:
+            raw = part.inline_data.data
+            out_img = Image.open(io.BytesIO(raw))
+            if out_img.mode != "RGB":
+                out_img = out_img.convert("RGB")
+            out = io.BytesIO()
+            out_img.save(out, format="PNG")
+            out.seek(0)
+            return out.read()
+
+    raise RuntimeError("Gemini не вернул изображение")
 
 
 async def post_to_channel(bot, image_bytes, prompt):
