@@ -144,7 +144,7 @@ def generate_image(prompt, model_name):
     image_part = genai_types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
 
     response = genai_client.models.generate_content(
-        model="gemini-2.0-flash-exp",
+        model="gemini-2.0-flash-preview-image-generation",
         contents=[prompt, image_part],
         config=genai_types.GenerateContentConfig(
             response_modalities=["IMAGE", "TEXT"]
