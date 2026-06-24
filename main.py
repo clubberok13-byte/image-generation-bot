@@ -20,12 +20,6 @@ TARGET_CHANNEL_ID    = int(os.environ["TARGET_CHANNEL_ID"])
 REFERENCE_LINK       = os.environ["REFERENCE_LINK"]
 POLL_INTERVAL        = 23
 
-from google import genai
-from google.genai import types as genai_types
-genai_client = genai.Client(
-    api_key=ARTEMOX_API_KEY,
-    http_options=genai_types.HttpOptions(base_url='https://api.artemox.com')
-)
 
 MOSCOW_TZ    = pytz.timezone("Europe/Moscow")
 HOUR_START   = 7
@@ -139,21 +133,36 @@ def generate_image(prompt, model_name):
         img = img.convert("RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
-    img_bytes = buf.getvalue()
+    img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-    image_part = genai_types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}
+            ]
+        }],
+        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]}
+    }
+    url = "https://api.artemox.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent"
+    hdrs = {
+        "Authorization": f"Bearer {ARTEMOX_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    resp = requests.post(url, headers=hdrs, json=payload, timeout=120)
+    if resp.status_code != 200:
+        raise RuntimeError("Artemox " + str(resp.status_code) + ": " + resp.text[:300])
 
-    response = genai_client.models.generate_content(
-        model="gemini-2.0-flash-preview-image-generation",
-        contents=[prompt, image_part],
-        config=genai_types.GenerateContentConfig(
-            response_modalities=["IMAGE", "TEXT"]
-        )
-    )
+    data = resp.json()
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError):
+        raise RuntimeError("Неожиданный ответ: " + json.dumps(data)[:300])
 
-    for part in response.candidates[0].content.parts:
-        if part.inline_data:
-            raw = part.inline_data.data
+    for part in parts:
+        inline = part.get("inlineData") or part.get("inline_data")
+        if inline and inline.get("data"):
+            raw = base64.b64decode(inline["data"])
             out_img = Image.open(io.BytesIO(raw))
             if out_img.mode != "RGB":
                 out_img = out_img.convert("RGB")
@@ -162,7 +171,7 @@ def generate_image(prompt, model_name):
             out.seek(0)
             return out.read()
 
-    raise RuntimeError("Gemini не вернул изображение")
+    raise RuntimeError("Artemox не вернул изображение")
 
 
 async def post_to_channel(bot, image_bytes, prompt):
