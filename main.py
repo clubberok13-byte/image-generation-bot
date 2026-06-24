@@ -135,43 +135,52 @@ def generate_image(prompt, model_name):
     img.save(buf, format="JPEG")
     img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}
-            ]
-        }],
-        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]}
-    }
-    url = "https://api.artemox.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent"
     hdrs = {
         "Authorization": f"Bearer {ARTEMOX_API_KEY}",
         "Content-Type": "application/json"
     }
-    resp = requests.post(url, headers=hdrs, json=payload, timeout=120)
-    if resp.status_code != 200:
-        raise RuntimeError("Artemox " + str(resp.status_code) + ": " + resp.text[:300])
 
-    data = resp.json()
+    # Шаг 1: описать внешность человека с reference фото через gemini-2.5-flash
+    vision_payload = {
+        "contents": [{
+            "parts": [
+                {"text": "Describe the person in this photo in detail: appearance, hair, face features, style. 2-3 sentences in English."},
+                {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}
+            ]
+        }]
+    }
+    vision_resp = requests.post(
+        "https://api.artemox.com/v1beta/models/gemini-2.5-flash:generateContent",
+        headers=hdrs, json=vision_payload, timeout=60
+    )
+    person_desc = ""
+    if vision_resp.status_code == 200:
+        try:
+            person_desc = vision_resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            log.info("Описание человека: %s", person_desc[:100])
+        except Exception:
+            pass
+
+    # Шаг 2: генерация картинки через imagen-3.0-generate-002
+    enhanced_prompt = f"{prompt}. The person: {person_desc}" if person_desc else prompt
+    imagen_payload = {
+        "prompt": enhanced_prompt,
+        "number_of_images": 1,
+        "aspect_ratio": "1:1",
+    }
+    imagen_resp = requests.post(
+        "https://api.artemox.com/v1beta/models/imagen-3.0-generate-002:generateImages",
+        headers=hdrs, json=imagen_payload, timeout=120
+    )
+    if imagen_resp.status_code != 200:
+        raise RuntimeError("Artemox imagen " + str(imagen_resp.status_code) + ": " + imagen_resp.text[:300])
+
+    data = imagen_resp.json()
     try:
-        parts = data["candidates"][0]["content"]["parts"]
+        img_b64_result = data["predictions"][0]["bytesBase64Encoded"]
+        return base64.b64decode(img_b64_result)
     except (KeyError, IndexError):
-        raise RuntimeError("Неожиданный ответ: " + json.dumps(data)[:300])
-
-    for part in parts:
-        inline = part.get("inlineData") or part.get("inline_data")
-        if inline and inline.get("data"):
-            raw = base64.b64decode(inline["data"])
-            out_img = Image.open(io.BytesIO(raw))
-            if out_img.mode != "RGB":
-                out_img = out_img.convert("RGB")
-            out = io.BytesIO()
-            out_img.save(out, format="PNG")
-            out.seek(0)
-            return out.read()
-
-    raise RuntimeError("Artemox не вернул изображение")
+        raise RuntimeError("Imagen не вернул изображение: " + json.dumps(data)[:300])
 
 
 async def post_to_channel(bot, image_bytes, prompt):
