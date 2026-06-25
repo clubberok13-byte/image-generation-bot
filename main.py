@@ -15,10 +15,12 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("bot")
 
 TELEGRAM_BOT_TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
-ARTEMOX_API_KEY      = os.environ["ARTEMOX_API_KEY"]
+FAL_KEY              = os.environ["FAL_KEY"]
 TARGET_CHANNEL_ID    = int(os.environ["TARGET_CHANNEL_ID"])
 REFERENCE_LINK       = os.environ["REFERENCE_LINK"]
 POLL_INTERVAL        = 23
+
+os.environ["FAL_KEY"] = FAL_KEY
 
 
 MOSCOW_TZ    = pytz.timezone("Europe/Moscow")
@@ -125,6 +127,8 @@ def find_model_file(model_name):
 
 
 def generate_image(prompt, model_name):
+    import fal_client
+
     ref_path = find_model_file(model_name)
     log.info("Референс: %s", ref_path)
 
@@ -134,65 +138,23 @@ def generate_image(prompt, model_name):
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
     img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    image_data_uri = f"data:image/jpeg;base64,{img_b64}"
 
-    hdrs = {
-        "Authorization": f"Bearer {ARTEMOX_API_KEY}",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-        "Origin": "https://api.artemox.com",
-    }
-
-    # Шаг 1: описать человека с reference фото
-    vision_payload = {
-        "model": "gemini-2.5-flash",
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
-                {"type": "text", "text": "Describe the person in this photo: appearance, hair, face, style. 2 sentences in English."}
-            ]
-        }]
-    }
-    vision_resp = requests.post(
-        "https://api.artemox.com/v1/chat/completions",
-        headers=hdrs, json=vision_payload, timeout=60
+    result = fal_client.subscribe(
+        "fal-ai/flux/dev/image-to-image",
+        arguments={
+            "image_url": image_data_uri,
+            "prompt": prompt,
+            "strength": 0.7,
+            "num_images": 1,
+            "output_format": "jpeg",
+        }
     )
-    person_desc = ""
-    if vision_resp.status_code == 200:
-        try:
-            person_desc = vision_resp.json()["choices"][0]["message"]["content"]
-            log.info("Описание: %s", person_desc[:100])
-        except Exception:
-            pass
 
-    # Шаг 2: генерация через imagen-3.0-generate-002
-    enhanced_prompt = f"{prompt}. Person description: {person_desc}" if person_desc else prompt
-    imagen_payload = {
-        "model": "dall-e-3",
-        "prompt": enhanced_prompt,
-        "n": 1,
-        "size": "1024x1024",
-    }
-    imagen_resp = requests.post(
-        "https://api.artemox.com/v1/images/generations",
-        headers=hdrs, json=imagen_payload, timeout=120
-    )
-    if imagen_resp.status_code != 200:
-        raise RuntimeError("Artemox imagen " + str(imagen_resp.status_code) + ": " + imagen_resp.text[:300])
-
-    data = imagen_resp.json()
-    try:
-        image_url = data["data"][0]["url"]
-        r = requests.get(image_url, timeout=60)
-        r.raise_for_status()
-        return r.content
-    except (KeyError, IndexError):
-        # Попробуем b64
-        try:
-            return base64.b64decode(data["data"][0]["b64_json"])
-        except Exception:
-            raise RuntimeError("Imagen не вернул изображение: " + json.dumps(data)[:300])
+    output_url = result["images"][0]["url"]
+    r = requests.get(output_url, timeout=60)
+    r.raise_for_status()
+    return r.content
 
 
 async def post_to_channel(bot, image_bytes, prompt):
