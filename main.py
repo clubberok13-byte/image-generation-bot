@@ -39,8 +39,7 @@ TGME_HEADERS = {
 
 
 def is_active_hours():
-    now = datetime.now(MOSCOW_TZ)
-    return HOUR_START <= now.hour < HOUR_END
+    return True
 
 
 def make_caption(prompt):
