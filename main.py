@@ -169,7 +169,7 @@ def generate_image(prompt, model_name):
     # Шаг 2: генерация через imagen-3.0-generate-002
     enhanced_prompt = f"{prompt}. Person description: {person_desc}" if person_desc else prompt
     imagen_payload = {
-        "model": "imagen-3.0-generate-002",
+        "model": "dall-e-3",
         "prompt": enhanced_prompt,
         "n": 1,
         "size": "1024x1024",
