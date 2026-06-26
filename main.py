@@ -18,7 +18,7 @@ TELEGRAM_BOT_TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
 FAL_KEY              = os.environ["FAL_KEY"]
 TARGET_CHANNEL_ID    = int(os.environ["TARGET_CHANNEL_ID"])
 REFERENCE_LINK       = os.environ["REFERENCE_LINK"]
-POLL_INTERVAL        = 23
+POLL_INTERVAL        = int(os.environ.get("POLL_INTERVAL", 23))
 
 os.environ["FAL_KEY"] = FAL_KEY
 
@@ -31,7 +31,7 @@ SOURCE_CHANNELS = ["gorbuzaksenia", "balahninaII"]
 REPO_DIR        = Path(__file__).parent
 REF_DIR         = REPO_DIR / "reference_photos"
 MODELS          = ["model_1", "model_2"]
-STATE_FILE      = Path("/tmp/seen.json")
+STATE_FILE      = REPO_DIR / "seen.json"
 
 TGME_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
@@ -39,7 +39,8 @@ TGME_HEADERS = {
 
 
 def is_active_hours():
-    return True
+    now = datetime.now(MOSCOW_TZ)
+    return HOUR_START <= now.hour < HOUR_END
 
 
 def make_caption(prompt):
@@ -112,7 +113,7 @@ def fetch_new_entries(seen_ids):
                 continue
             log.info("Найден промт в посте %s", eid)
             fresh.append({"id": eid, "prompt": prompt, "link": eid})
-    return fresh[-1:] if fresh else []
+    return fresh
 
 
 def find_model_file(model_name):
@@ -125,7 +126,7 @@ def find_model_file(model_name):
     raise FileNotFoundError("Не найден файл референса: " + model_name)
 
 
-def generate_image(prompt, model_name):
+def generate_image(prompt, model_name, retries=3):
     import fal_client
 
     ref_path = find_model_file(model_name)
@@ -139,21 +140,29 @@ def generate_image(prompt, model_name):
     img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
     image_data_uri = f"data:image/jpeg;base64,{img_b64}"
 
-    result = fal_client.subscribe(
-        "fal-ai/flux/dev/image-to-image",
-        arguments={
-            "image_url": image_data_uri,
-            "prompt": prompt,
-            "strength": 0.7,
-            "num_images": 1,
-            "output_format": "jpeg",
-        }
-    )
-
-    output_url = result["images"][0]["url"]
-    r = requests.get(output_url, timeout=60)
-    r.raise_for_status()
-    return r.content
+    for attempt in range(retries):
+        try:
+            result = fal_client.subscribe(
+                "fal-ai/flux/dev/image-to-image",
+                arguments={
+                    "image_url": image_data_uri,
+                    "prompt": prompt,
+                    "strength": 0.85,
+                    "num_images": 1,
+                    "output_format": "jpeg",
+                }
+            )
+            output_url = result["images"][0]["url"]
+            r = requests.get(output_url, timeout=60)
+            r.raise_for_status()
+            return r.content
+        except Exception as e:
+            wait = 2 ** attempt * 10
+            log.warning("FAL ошибка (попытка %d/%d): %s. Жду %ds", attempt + 1, retries, e, wait)
+            if attempt + 1 < retries:
+                import time; time.sleep(wait)
+            else:
+                raise
 
 
 async def post_to_channel(bot, image_bytes, prompt):
