@@ -31,7 +31,7 @@ SOURCE_CHANNELS = ["gorbuzaksenia", "balahninaII"]
 REPO_DIR        = Path(__file__).parent
 REF_DIR         = REPO_DIR / "reference_photos"
 MODELS          = ["model_1", "model_2"]
-STATE_FILE      = REPO_DIR / "seen.json"
+STATE_FILE      = Path("/tmp/seen.json")
 
 TGME_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
@@ -113,7 +113,7 @@ def fetch_new_entries(seen_ids):
                 continue
             log.info("Найден промт в посте %s", eid)
             fresh.append({"id": eid, "prompt": prompt, "link": eid})
-    return fresh
+    return fresh[-1:] if fresh else []
 
 
 def find_model_file(model_name):
