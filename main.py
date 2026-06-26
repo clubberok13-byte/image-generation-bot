@@ -27,7 +27,7 @@ MOSCOW_TZ    = pytz.timezone("Europe/Moscow")
 HOUR_START   = 7
 HOUR_END     = 23
 
-SOURCE_CHANNELS = ["IIFot", "gorbuzaksenia", "balahninaII", "promtmasteer"]
+SOURCE_CHANNELS = ["gorbuzaksenia", "balahninaII"]
 REPO_DIR        = Path(__file__).parent
 REF_DIR         = REPO_DIR / "reference_photos"
 MODELS          = ["model_1", "model_2"]
