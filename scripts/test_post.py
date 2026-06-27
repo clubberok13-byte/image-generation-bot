@@ -37,7 +37,7 @@ def generate():
     result = fal_client.subscribe(
         "fal-ai/pulid",
         arguments={
-            "reference_images": [{"url": face_url}],
+            "reference_images": [{"image_url": face_url}],
             "prompt": TEST_PROMPT,
             "num_steps": 20,
             "start_step": 4,
