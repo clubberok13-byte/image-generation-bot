@@ -148,7 +148,7 @@ def generate_image(prompt, model_name, retries=3):
             result = fal_client.subscribe(
                 "fal-ai/pulid",
                 arguments={
-                    "main_face_image": {"url": face_url},
+                    "reference_images": [{"url": face_url}],
                     "prompt": prompt,
                     "num_steps": 20,
                     "start_step": 4,
