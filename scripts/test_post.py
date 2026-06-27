@@ -41,7 +41,7 @@ def generate():
             "prompt": TEST_PROMPT,
             "num_steps": 28,
             "start_step": 4,
-            "guidance_scale": 2.0,
+            "guidance_scale": 1.5,
             "num_images": 1,
             "image_size": "portrait_4_3",
         }
