@@ -1,4 +1,4 @@
-import os, io, base64, asyncio
+import os, io, asyncio
 from pathlib import Path
 from PIL import Image
 from telegram import Bot
@@ -29,12 +29,15 @@ def generate():
         img = img.convert("RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
-    uri = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    buf.seek(0)
+    print("Загружаю референс на fal.ai CDN...")
+    face_url = fal_client.upload(buf.read(), content_type="image/jpeg")
+    print(f"CDN URL: {face_url}")
 
     result = fal_client.subscribe(
         "fal-ai/pulid",
         arguments={
-            "main_face_image": uri,
+            "main_face_image": {"url": face_url},
             "prompt": TEST_PROMPT,
             "num_steps": 20,
             "start_step": 4,

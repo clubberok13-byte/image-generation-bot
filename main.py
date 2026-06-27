@@ -137,15 +137,18 @@ def generate_image(prompt, model_name, retries=3):
         img = img.convert("RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
-    img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-    image_data_uri = f"data:image/jpeg;base64,{img_b64}"
+    buf.seek(0)
+
+    log.info("Загружаю референс на fal.ai CDN...")
+    face_url = fal_client.upload(buf.read(), content_type="image/jpeg")
+    log.info("CDN URL: %s", face_url)
 
     for attempt in range(retries):
         try:
             result = fal_client.subscribe(
                 "fal-ai/pulid",
                 arguments={
-                    "main_face_image": image_data_uri,
+                    "main_face_image": {"url": face_url},
                     "prompt": prompt,
                     "num_steps": 20,
                     "start_step": 4,
