@@ -39,10 +39,11 @@ def generate():
         arguments={
             "reference_images": [{"image_url": face_url}],
             "prompt": TEST_PROMPT,
-            "num_steps": 20,
+            "num_steps": 28,
             "start_step": 4,
-            "guidance_scale": 1.5,
+            "guidance_scale": 2.0,
             "num_images": 1,
+            "image_size": "portrait_4_3",
         }
     )
     url = result["images"][0]["url"]
