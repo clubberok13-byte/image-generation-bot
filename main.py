@@ -150,7 +150,7 @@ def generate_image(prompt, model_name, retries=3):
                 arguments={
                     "image_url": face_url,
                     "prompt": prompt,
-                    "image_prompt_strength": 0.15,
+                    "image_prompt_strength": 0.4,
                     "num_images": 1,
                     "output_format": "jpeg",
                     "aspect_ratio": "3:4",
