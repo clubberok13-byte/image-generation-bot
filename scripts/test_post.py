@@ -33,26 +33,15 @@ def generate():
     print("Загружаю референс на fal.ai CDN...")
     face_url = fal_client.upload(buf.read(), content_type="image/jpeg")
     print(f"CDN URL: {face_url}")
-    enhanced = (
-        "RAW photo, photorealistic, real photograph, 8k uhd, DSLR, "
-        "sharp focus, natural skin texture, professional lighting, cinematic, "
-        + TEST_PROMPT
-    )
-    neg = (
-        "cartoon, illustration, painting, drawing, anime, sketch, "
-        "CGI, render, artificial, fake, plastic skin, doll, unrealistic"
-    )
     result = fal_client.subscribe(
-        "fal-ai/pulid",
+        "fal-ai/flux-pro/v1/redux",
         arguments={
-            "reference_images": [{"image_url": face_url}],
-            "prompt": enhanced,
-            "negative_prompt": neg,
-            "num_steps": 30,
-            "start_step": 4,
-            "guidance_scale": 1.5,
+            "image_url": face_url,
+            "prompt": TEST_PROMPT,
+            "guidance_scale": 3.5,
             "num_images": 1,
             "image_size": "portrait_4_3",
+            "output_format": "jpeg",
         }
     )
     url = result["images"][0]["url"]
