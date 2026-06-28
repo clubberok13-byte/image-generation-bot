@@ -146,14 +146,14 @@ def generate_image(prompt, model_name, retries=3):
     for attempt in range(retries):
         try:
             result = fal_client.subscribe(
-                "fal-ai/flux-pro/v1/redux",
+                "fal-ai/flux-pro/v1.1-ultra/redux",
                 arguments={
                     "image_url": face_url,
                     "prompt": prompt,
-                    "guidance_scale": 3.5,
+                    "image_prompt_strength": 0.15,
                     "num_images": 1,
-                    "image_size": "portrait_4_3",
                     "output_format": "jpeg",
+                    "aspect_ratio": "3:4",
                 }
             )
             output_url = result["images"][0]["url"]

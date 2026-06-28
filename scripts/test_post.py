@@ -34,14 +34,14 @@ def generate():
     face_url = fal_client.upload(buf.read(), content_type="image/jpeg")
     print(f"CDN URL: {face_url}")
     result = fal_client.subscribe(
-        "fal-ai/flux-pro/v1/redux",
+        "fal-ai/flux-pro/v1.1-ultra/redux",
         arguments={
             "image_url": face_url,
             "prompt": TEST_PROMPT,
-            "guidance_scale": 3.5,
+            "image_prompt_strength": 0.15,
             "num_images": 1,
-            "image_size": "portrait_4_3",
             "output_format": "jpeg",
+            "aspect_ratio": "3:4",
         }
     )
     url = result["images"][0]["url"]
