@@ -139,6 +139,16 @@ def generate_image(prompt, model_name, retries=3):
     img.save(buf, format="JPEG")
     buf.seek(0)
 
+    enhanced_prompt = (
+        "RAW photo, photorealistic, real photograph, 8k uhd, DSLR, "
+        "sharp focus, natural skin texture, professional lighting, cinematic, "
+        + prompt
+    )
+    negative_prompt = (
+        "cartoon, illustration, painting, drawing, anime, sketch, "
+        "CGI, render, artificial, fake, plastic skin, doll, unrealistic"
+    )
+
     log.info("Загружаю референс на fal.ai CDN...")
     face_url = fal_client.upload(buf.read(), content_type="image/jpeg")
     log.info("CDN URL: %s", face_url)
@@ -149,8 +159,9 @@ def generate_image(prompt, model_name, retries=3):
                 "fal-ai/pulid",
                 arguments={
                     "reference_images": [{"image_url": face_url}],
-                    "prompt": prompt,
-                    "num_steps": 28,
+                    "prompt": enhanced_prompt,
+                    "negative_prompt": negative_prompt,
+                    "num_steps": 30,
                     "start_step": 4,
                     "guidance_scale": 1.5,
                     "num_images": 1,
