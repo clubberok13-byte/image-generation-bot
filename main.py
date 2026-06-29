@@ -193,12 +193,35 @@ async def post_to_channel(bot, image_bytes, prompt):
     log.info("Запостил картинку, message_id=%s", sent.message_id)
 
 
+def seed_seen_on_startup(state):
+    if state["seen_ids"]:
+        return
+    log.info("Первый старт — помечаю все текущие посты как виденные...")
+    for channel in SOURCE_CHANNELS:
+        url = "https://t.me/s/" + channel
+        try:
+            r = requests.get(url, headers=TGME_HEADERS, timeout=20)
+            soup = BeautifulSoup(r.text, "html.parser")
+            for msg in soup.find_all("div", class_="tgme_widget_message"):
+                pid = msg.get("data-post")
+                if pid:
+                    state["seen_ids"].append("https://t.me/" + pid)
+        except Exception as e:
+            log.exception("Ошибка сидирования %s: %s", channel, e)
+    state["seen_ids"] = list(set(state["seen_ids"]))[-500:]
+    save_state(state)
+    log.info("Сидирование завершено: %d постов помечено", len(state["seen_ids"]))
+
+
 async def main_loop():
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
     me = await bot.get_me()
     log.info("Бот запущен: @%s", me.username)
     log.info("Каналы: %s", SOURCE_CHANNELS)
     log.info("Цель: %s", TARGET_CHANNEL_ID)
+
+    startup_state = load_state()
+    seed_seen_on_startup(startup_state)
 
     while True:
         now = datetime.now(MOSCOW_TZ)
