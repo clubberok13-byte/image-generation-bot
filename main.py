@@ -86,6 +86,8 @@ def extract_prompt(msg_div):
 
 
 def fetch_new_entries(seen_ids):
+    from datetime import timezone, timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     fresh = []
     for channel in SOURCE_CHANNELS:
         url = "https://t.me/s/" + channel
@@ -106,6 +108,15 @@ def fetch_new_entries(seen_ids):
             eid = "https://t.me/" + pid
             if eid in seen_ids:
                 continue
+            time_tag = msg.find("time")
+            if time_tag and time_tag.get("datetime"):
+                try:
+                    post_time = datetime.fromisoformat(time_tag["datetime"])
+                    if post_time < cutoff:
+                        seen_ids.append(eid)
+                        continue
+                except Exception:
+                    pass
             tdiv = msg.find("div", class_="tgme_widget_message_text")
             prompt = extract_prompt(tdiv) if tdiv else None
             if not prompt:
