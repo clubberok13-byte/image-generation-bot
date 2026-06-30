@@ -32,20 +32,34 @@ def generate():
     buf.seek(0)
     print("Загружаю референс на fal.ai CDN...")
     face_url = fal_client.upload(buf.read(), content_type="image/jpeg")
-    print(f"CDN URL: {face_url}")
-    result = fal_client.subscribe(
-        "fal-ai/flux-pro/v1.1-ultra/redux",
+    print(f"Face URL: {face_url}")
+
+    print("Генерирую сцену по промту (Flux Ultra)...")
+    scene_result = fal_client.subscribe(
+        "fal-ai/flux-pro/v1.1-ultra",
         arguments={
-            "image_url": face_url,
             "prompt": TEST_PROMPT,
-            "image_prompt_strength": 0.4,
             "num_images": 1,
             "output_format": "jpeg",
             "aspect_ratio": "3:4",
+            "safety_tolerance": "5",
         }
     )
-    url = result["images"][0]["url"]
-    r = requests.get(url, timeout=60)
+    scene_url = scene_result["images"][0]["url"]
+    print(f"Сцена: {scene_url}")
+
+    print("Face swap — вставляю лицо из референса...")
+    swap_result = fal_client.subscribe(
+        "fal-ai/face-swap",
+        arguments={
+            "base_image_url": scene_url,
+            "swap_image_url": face_url,
+        }
+    )
+    output_url = swap_result["image"]["url"]
+    print(f"Результат: {output_url}")
+
+    r = requests.get(output_url, timeout=60)
     r.raise_for_status()
     return r.content
 

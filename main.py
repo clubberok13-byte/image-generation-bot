@@ -152,22 +152,37 @@ def generate_image(prompt, model_name, retries=3):
 
     log.info("Загружаю референс на fal.ai CDN...")
     face_url = fal_client.upload(buf.read(), content_type="image/jpeg")
-    log.info("CDN URL: %s", face_url)
+    log.info("Face CDN URL: %s", face_url)
 
     for attempt in range(retries):
         try:
-            result = fal_client.subscribe(
-                "fal-ai/flux-pro/v1.1-ultra/redux",
+            # Шаг 1: генерируем сцену по промту через Flux Ultra
+            log.info("Генерирую сцену по промту...")
+            scene_result = fal_client.subscribe(
+                "fal-ai/flux-pro/v1.1-ultra",
                 arguments={
-                    "image_url": face_url,
                     "prompt": prompt,
-                    "image_prompt_strength": 0.1,
                     "num_images": 1,
                     "output_format": "jpeg",
                     "aspect_ratio": "3:4",
+                    "safety_tolerance": "5",
                 }
             )
-            output_url = result["images"][0]["url"]
+            scene_url = scene_result["images"][0]["url"]
+            log.info("Сцена готова: %s", scene_url)
+
+            # Шаг 2: вставляем лицо из референса в сгенерированную сцену
+            log.info("Вставляю лицо из референса...")
+            swap_result = fal_client.subscribe(
+                "fal-ai/face-swap",
+                arguments={
+                    "base_image_url": scene_url,
+                    "swap_image_url": face_url,
+                }
+            )
+            output_url = swap_result["image"]["url"]
+            log.info("Face swap готов: %s", output_url)
+
             r = requests.get(output_url, timeout=60)
             r.raise_for_status()
             return r.content
